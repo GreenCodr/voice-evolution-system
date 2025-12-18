@@ -1,0 +1,27 @@
+# config/voice_config.yaml
+
+audio_quality:
+  min_duration_sec: 10.0
+  min_snr_db: 20.0
+
+speaker_verification:
+  similarity_reject_hard: 0.88
+  similarity_no_change: 0.93
+
+confidence:
+  reject_below: 0.60
+  create_above: 0.85
+
+device:
+  min_match_score: 0.60
+
+faiss:
+  similarity_threshold: 0.75
+
+rate_limit:
+  max_requests: 5
+  window_sec: 60
+
+playback:
+  min_confidence_use: 0.70
+  prefer_recorded: true
