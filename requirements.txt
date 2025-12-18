@@ -1,0 +1,13 @@
+streamlit
+numpy
+scipy
+soundfile
+librosa
+scikit-learn
+joblib
+pyyaml
+torch
+torchaudio
+TTS
+faiss-cpu
+
