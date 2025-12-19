@@ -2,36 +2,88 @@
 
 import argparse
 import hashlib
-from pathlib import Path
 import shutil
+from pathlib import Path
+
 import soundfile as sf
 from TTS.api import TTS
 
-from rate_limiter import check_rate_limit
-from structured_logger import log_event
-from voice_label import write_voice_metadata
+from scripts.rate_limiter import check_rate_limit
+from scripts.structured_logger import log_event
+from scripts.audio_cache import get_cached_audio
 
-# ------------------ CACHE SETUP ------------------
+# ------------------ CONSTANTS ------------------
+
+MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
+SAMPLE_RATE = 24000
+
+
+# ================== PROGRAMMATIC API ==================
+
+def synthesize_from_embedding(
+    text: str,
+    out_path: str,
+    speaker_embedding,
+    reference_wav: str,
+):
+    """
+    Programmatic API used by backend / playback engine
+    """
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cached_file = get_cached_audio(
+        text=text,
+        speaker_wav=reference_wav,
+        speaker_embedding=speaker_embedding,
+    )
+
+    shutil.copyfile(cached_file, out_path)
+    return out_path
+
+
+# ================== INTERNAL SYNTHESIS ==================
+
+def _synthesize_and_cache(text: str, speaker_wav: str, cache_path: Path):
+    """
+    Internal XTTS synthesis (single place)
+    """
+
+    print("🔊 Loading XTTS model...")
+    tts = TTS(model_name=MODEL_NAME)
+
+    print("🎙️ Synthesizing voice...")
+    wav = tts.tts(
+        text=text,
+        speaker_wav=speaker_wav,
+        language="en"
+    )
+
+    sf.write(cache_path, wav, SAMPLE_RATE)
+    return wav
+
+
+# ================== CACHE HELPERS ==================
 
 CACHE_DIR = Path("cache/audio")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-
-# ------------------ HELPERS ------------------
 
 def make_cache_key(text: str, speaker_wav: str) -> str:
     speaker_wav = str(Path(speaker_wav).resolve())
     key = f"{MODEL_NAME}|{text}|{speaker_wav}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
-# ------------------ MAIN ------------------
+
+# ================== CLI ENTRY ==================
 
 def main(text: str, out_path: str, speaker_wav: str):
     user_id = "user_001"
     out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # -------- A3.3.1: Rate limiting --------
+    # -------- Rate limiting --------
     rate = check_rate_limit(user_id)
     if not rate["allowed"]:
         log_event("PLAYBACK_BLOCKED", {
@@ -43,7 +95,7 @@ def main(text: str, out_path: str, speaker_wav: str):
         print(f"⏳ Try again in {rate['reset_in_sec']} seconds")
         return
 
-    # -------- A3.3.2: Cache lookup --------
+    # -------- Cache lookup --------
     cache_key = make_cache_key(text, speaker_wav)
     cached_file = CACHE_DIR / f"{cache_key}.wav"
 
@@ -52,15 +104,7 @@ def main(text: str, out_path: str, speaker_wav: str):
             "user_id": user_id,
             "output": str(out_path),
         })
-
         shutil.copyfile(cached_file, out_path)
-
-        write_voice_metadata(
-            audio_path=out_path,
-            voice_type="RECORDED",
-            note="Served from cache"
-        )
-
         print("⚡ Cache hit — serving cached audio")
         print(f"✅ Output (cached): {out_path}")
         return
@@ -70,20 +114,10 @@ def main(text: str, out_path: str, speaker_wav: str):
         "output": str(out_path),
     })
 
-    # -------- Voice synthesis --------
-    print("🔊 Loading XTTS model...")
-    tts = TTS(model_name=MODEL_NAME)
+    # -------- Synthesis --------
+    wav = _synthesize_and_cache(text, speaker_wav, cached_file)
 
-    print("🎙️ Synthesizing voice...")
-    wav = tts.tts(
-        text=text,
-        speaker_wav=speaker_wav,
-        language="en"
-    )
-
-    # Save to cache + output
-    sf.write(cached_file, wav, 24000)
-    sf.write(out_path, wav, 24000)
+    sf.write(out_path, wav, SAMPLE_RATE)
 
     log_event("AUDIO_GENERATED", {
         "user_id": user_id,
@@ -91,16 +125,11 @@ def main(text: str, out_path: str, speaker_wav: str):
         "model": MODEL_NAME
     })
 
-    write_voice_metadata(
-        audio_path=out_path,
-        voice_type="RECORDED",
-        note="Fresh synthesis"
-    )
-
     print(f"✅ Audio generated: {out_path}")
     print("🧠 Cached for future requests")
 
-# ------------------ ENTRY ------------------
+
+# ================== ENTRY POINT ==================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

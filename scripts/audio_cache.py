@@ -1,21 +1,58 @@
 # scripts/audio_cache.py
-from pathlib import Path
-import hashlib
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CACHE_DIR = PROJECT_ROOT / "cache" / "audio"
+import hashlib
+from pathlib import Path
+import shutil
+import soundfile as sf
+from TTS.api import TTS
+
+# ------------------ CONSTANTS ------------------
+
+CACHE_DIR = Path("cache/audio")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-def cache_key(version_id, target_age):
-    raw = f"{version_id}_{target_age}".encode()
-    return hashlib.md5(raw).hexdigest()
+MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
+SAMPLE_RATE = 24000
 
-def cache_audio(version_id, target_age, audio_path):
-    key = cache_key(version_id, target_age)
-    cached = CACHE_DIR / f"{key}.wav"
 
-    if cached.exists():
-        return cached, True  # cache hit
+# ------------------ CACHE KEY ------------------
 
-    cached.write_bytes(Path(audio_path).read_bytes())
-    return cached, False
+def make_cache_key(text: str, speaker_wav: str) -> str:
+    speaker_wav = str(Path(speaker_wav).resolve())
+    key = f"{MODEL_NAME}|{text}|{speaker_wav}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+# ------------------ MAIN API ------------------
+
+def get_cached_audio(
+    text: str,
+    speaker_wav: str,
+    speaker_embedding=None,   # kept for future use
+) -> Path:
+    """
+    Unified audio cache + synthesis entry.
+    Returns path to cached WAV.
+    """
+
+    cache_key = make_cache_key(text, speaker_wav)
+    cached_file = CACHE_DIR / f"{cache_key}.wav"
+
+    if cached_file.exists():
+        print("⚡ Cache hit — serving cached audio")
+        return cached_file
+
+    print("🔊 Cache miss — synthesizing")
+
+    tts = TTS(model_name=MODEL_NAME)
+
+    wav = tts.tts(
+        text=text,
+        speaker_wav=speaker_wav,
+        language="en"
+    )
+
+    sf.write(cached_file, wav, SAMPLE_RATE)
+    print("🧠 Audio cached")
+
+    return cached_file

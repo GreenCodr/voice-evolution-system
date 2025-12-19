@@ -1,51 +1,62 @@
 # scripts/confidence_engine.py
 
+from typing import Optional
+
+
+def clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(x, hi))
+
+
 def compute_confidence(
     duration_s: float,
-    snr_db: float | None,
+    snr_db: Optional[float],
     speaker_similarity: float,
     device_match: float,
     history_count: int,
-    min_duration: float = 10.0,
-    min_snr: float = 20.0,
-):
-    
+) -> float:
     """
-    Returns confidence score in [0, 1]
+    Production-grade confidence score for real human speech.
+    Output range: [0.0 – 1.0]
     """
 
-    score = 0.0
+    # ---------------- Duration (20%) ----------------
+    # 10s = minimum, 30s+ ideal
+    duration_score = clamp((duration_s - 8.0) / 20.0)
 
-    # 1. Duration (25%)
-    dur_score = min(duration_s / min_duration, 1.0)
-    score += 0.25 * dur_score
-
-    # 2. SNR (20%)
+    # ---------------- SNR (SOFT, 15%) ----------------
+    # Speech SNR is usually 0–10 dB (do NOT punish)
     if snr_db is None:
-        snr_score = 0.0
+        snr_score = 0.4
+    elif snr_db <= 0:
+        snr_score = 0.3
+    elif snr_db < 10:
+        snr_score = 0.3 + (snr_db / 10.0) * 0.4
     else:
-        snr_score = min(snr_db / min_snr, 1.0)
-    score += 0.20 * snr_score
+        snr_score = 0.7
 
-    # 3. Speaker similarity (30%)
-    speaker_score = max(0.0, min(speaker_similarity, 1.0))
-    score += 0.30 * speaker_score
+    # ---------------- Speaker similarity (30%) ----------------
+    speaker_score = clamp(float(speaker_similarity))
 
-    # 4. Device match (15%)
-    score += 0.15 * device_match
+    # ---------------- Device consistency (15%) ----------------
+    device_score = clamp(float(device_match))
 
-    # 5. Temporal consistency (10%)
-    # (Phase-1 placeholder: assume stable timeline)
-    # 5. Temporal consistency (10%)
+    # ---------------- History consistency (20%) ----------------
     if history_count >= 3:
-        temporal_score = 1.0
+        history_score = 1.0
     elif history_count == 2:
-        temporal_score = 0.6
+        history_score = 0.7
     elif history_count == 1:
-        temporal_score = 0.3
+        history_score = 0.4
     else:
-        temporal_score = 0.0
+        history_score = 0.2
 
-    score += 0.10 * temporal_score
+    # ---------------- Final weighted confidence ----------------
+    confidence = (
+        0.30 * speaker_score +
+        0.20 * duration_score +
+        0.15 * snr_score +
+        0.15 * device_score +
+        0.20 * history_score
+    )
 
-    return round(score, 3)
+    return round(clamp(confidence), 3)

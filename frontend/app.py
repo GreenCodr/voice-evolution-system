@@ -1,31 +1,46 @@
 # frontend/app.py
 
+import sys
+import os
 import json
-import streamlit as st
-from pathlib import Path
-from datetime import datetime
-import subprocess
 import tempfile
+from pathlib import Path
 
+import streamlit as st
+
+# ------------------ FIX PYTHON PATH (CRITICAL) ------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# ------------------ BACKEND IMPORTS ------------------
+from scripts.process_new_voice import process_new_voice
+from scripts.playback_service import play_voice
+from scripts.playback_explainer import explain_playback
+
 USERS_DIR = PROJECT_ROOT / "users"
 
 # ------------------ PAGE CONFIG ------------------
-
 st.set_page_config(
     page_title="Voice Evolution System",
     layout="centered"
 )
 
+# ==============================================================
+# HEADER
+# ==============================================================
+
 st.title("🎙️ Voice Evolution System")
-st.subheader("Real-world voice timeline & playback")
+st.caption("Automatic voice change detection & age-based playback")
+st.divider()
 
-st.markdown("---")
+# ==============================================================
+# USER SELECTION
+# ==============================================================
 
-# ------------------ USER SELECTION ------------------
+st.header("👤 User Dashboard")
 
 user_files = list(USERS_DIR.glob("*.json"))
-
 if not user_files:
     st.error("No users found. Please create a user first.")
     st.stop()
@@ -34,156 +49,142 @@ user_ids = [f.stem for f in user_files]
 selected_user = st.selectbox("Select User", user_ids)
 
 user_path = USERS_DIR / f"{selected_user}.json"
-
-with open(user_path, "r", encoding="utf-8") as f:
-    user = json.load(f)
-
-st.success(f"Active user: **{selected_user}**")
-
-st.markdown("---")
-
-# ------------------ USER PROFILE ------------------
-
-st.header("👤 User Profile")
+user = json.loads(user_path.read_text())
 
 col1, col2 = st.columns(2)
-
 with col1:
-    st.write("**User ID**")
-    st.write(user["user_id"])
-
-    st.write("**Date of Birth**")
-    st.write(user.get("date_of_birth", "Unknown"))
-
+    st.metric("User ID", user["user_id"])
+    st.metric("Date of Birth", user.get("date_of_birth", "Unknown"))
 with col2:
-    st.write("**Created On**")
-    created = user.get("created_utc")
-    if created:
-        st.write(datetime.fromisoformat(created.replace("Z", "")).strftime("%Y-%m-%d"))
+    st.metric("Total Voice Versions", len(user.get("voice_versions", [])))
+    st.metric("Account Created", user.get("created_utc", "")[:10])
+
+st.divider()
+
+# ==============================================================
+# PHASE 1 — VOICE INGESTION
+# ==============================================================
+
+st.header("🎙️ Upload Voice Sample")
+
+uploaded = st.file_uploader(
+    "Upload voice sample (WAV / MP3, minimum 10 seconds)",
+    type=["wav", "mp3"]
+)
+
+if uploaded:
+    st.audio(uploaded)
+    st.success("Voice file received ✔️")
+
+st.divider()
+
+st.header("🔍 Voice Analysis Result")
+
+if uploaded:
+    suffix = Path(uploaded.name).suffix.lower()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(uploaded.read())
+        tmp_path = tmp.name
+
+    with st.spinner("Analyzing voice sample..."):
+        result = process_new_voice(
+            user_id=selected_user,
+            audio_path=tmp_path
+        )
+
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
+
+    if not result.get("accepted", False):
+        st.error(f"❌ {result.get('reason', 'Rejected')}")
     else:
-        st.write("Unknown")
+        decision = result.get("decision", {})
 
-    st.write("**Total Voice Versions**")
-    st.write(len(user.get("voice_versions", [])))
+        st.success("Voice analyzed successfully")
+        st.write(f"• Change detected: `{result.get('change_detected')}`")
+        st.write(f"• Decision: `{decision.get('action')}`")
 
-# ------------------ TIMELINE SUMMARY ------------------
+        if "reason" in decision:
+            st.write(f"• Reason: {decision['reason']}")
 
-versions = user.get("voice_versions", [])
+        st.metric("Confidence", result.get("confidence", 0.0))
+        st.metric("Similarity", result.get("similarity", 0.0))
 
-if versions:
-    ages = [v["age_at_recording"] for v in versions if v.get("age_at_recording") is not None]
-
-    if ages:
-        st.markdown("---")
-        st.header("📈 Voice Timeline Summary")
-        st.write(f"**Earliest age recorded:** {min(ages)}")
-        st.write(f"**Latest age recorded:** {max(ages)}")
+        if result.get("audio_quality_soft_fail"):
+            st.warning("⚠️ Audio quality was suboptimal (soft penalty applied)")
 else:
-    st.warning("No voice versions available for this user.")
+    st.info("Waiting for voice input...")
 
-st.markdown("---")
-st.info("Profile loaded successfully ✔️")
+st.divider()
 
-# ------------------ VOICE TIMELINE TABLE ------------------
+# ==============================================================
+# VOICE TIMELINE
+# ==============================================================
 
 st.header("🧬 Voice Timeline")
 
-if not versions:
-    st.warning("No voice history available.")
-else:
-    versions = sorted(versions, key=lambda v: v.get("recorded_utc", ""))
+# Reload user after ingestion
+user = json.loads(user_path.read_text())
+versions = user.get("voice_versions", [])
 
-    table_data = []
+if versions:
+    table = []
     for v in versions:
-        table_data.append({
-            "Recorded Time": v.get("recorded_utc", "—"),
-            "Age": v.get("age_at_recording", "—"),
+        table.append({
+            "Recorded Date": v.get("recorded_utc", "")[:10],
+            "Age": v.get("age_at_recording"),
             "Type": v.get("type", "RECORDED"),
-            "Confidence": v.get("confidence", "—"),
-            "Has Audio": "✔️" if v.get("audio_path") else "—"
+            "Confidence": v.get("confidence", "-"),
         })
+    st.dataframe(table, use_container_width=True)
+else:
+    st.warning("No voice history available")
 
-    st.dataframe(table_data, use_container_width=True)
+st.divider()
 
-st.markdown("---")
-st.info("Timeline loaded ✔️")
+# ==============================================================
+# PHASE 2 — AGE-BASED PLAYBACK
+# ==============================================================
 
-# ------------------ VOICE PLAYBACK ------------------
-
-st.subheader("🎧 Voice Playback")
+st.header("🎧 Age-Based Voice Playback")
 
 target_age = st.slider(
     "Select target age",
-    min_value=0,
-    max_value=100,
-    value=26,
-    step=1
+    min_value=5,
+    max_value=90,
+    value=60
 )
 
-text = st.text_input(
-    "Text to speak",
-    "Hello, this is my voice at this age."
+text_to_speak = st.text_area(
+    "Text to speak (longer text = longer voice)",
+    value=(
+        "Hello, this is how my voice may sound in the future. "
+        "This system demonstrates realistic voice evolution over time, "
+        "preserving my identity while reflecting natural age-related changes. "
+        "The voice you are hearing is generated using a real-world "
+        "voice evolution pipeline."
+    ),
+    height=220
 )
 
 if st.button("▶️ Play Voice"):
-    with st.spinner("Preparing voice..."):
-        from scripts.hybrid_playback_decider import decide_playback_mode
-        from scripts.playback_explainer import explain_playback
+    with st.spinner("Preparing voice playback..."):
+        result = play_voice(
+            user_id=selected_user,
+            target_age=target_age,
+            text=text_to_speak
+        )
 
-        decision = decide_playback_mode(selected_user, target_age)
-        explanation = explain_playback(decision)
-
+    if result["mode"] == "ERROR":
+        st.error(result["reason"])
+    else:
+        explanation = explain_playback(result)
         st.markdown(f"### {explanation['icon']} {explanation['label']}")
         st.info(explanation["message"])
+        st.audio(result["audio_path"])
 
-        tmp_out = Path(tempfile.gettempdir()) / "voice_output.wav"
-
-        try:
-            if decision["mode"] == "RECORDED":
-                audio_path = decision["version"].get("audio_path")
-
-                if not audio_path:
-                    st.error("No recorded audio available for this version.")
-                    st.stop()
-
-                subprocess.run(
-                    [
-                        "python",
-                        "scripts/synthesize_from_embedding.py",
-                        text,
-                        str(tmp_out),
-                        "--speaker_wav",
-                        audio_path
-                    ],
-                    check=True
-                )
-
-            else:
-                nearest = decision.get("nearest", {})
-                audio_path = nearest.get("audio_path")
-
-                if not audio_path:
-                    st.error("No reference audio available for prediction.")
-                    st.stop()
-
-                subprocess.run(
-                    [
-                        "python",
-                        "scripts/synthesize_predicted_voice.py",
-                        text,
-                        str(tmp_out),
-                        "--speaker_wav",
-                        audio_path
-                    ],
-                    check=True
-                )
-
-            st.audio(str(tmp_out))
-
-        except subprocess.CalledProcessError:
-            st.error("Voice synthesis failed. Please try again.")
-
-# ------------------ FOOTER ------------------
-
-st.markdown("---")
-st.caption("⚠️ Predicted voices are AI-generated and may not reflect real recordings.")
+st.divider()
+st.caption("Voice Evolution System — Phase 2 complete")

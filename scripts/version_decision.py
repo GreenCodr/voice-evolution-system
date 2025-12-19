@@ -2,21 +2,20 @@ from datetime import datetime, date
 import csv
 from pathlib import Path
 import time
+from typing import Optional
 
-from config_loader import CONFIG
-from structured_logger import log_event
+from scripts.config_loader import CONFIG
+from scripts.structured_logger import log_event
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VERSIONS_FILE = PROJECT_ROOT / "versions" / "versions.csv"
 
-# ------------------ CONFIG-DRIVEN THRESHOLDS ------------------
+# ------------------ CONFIG ------------------
 
 SIM_REJECT_HARD = CONFIG["speaker_verification"]["similarity_reject_hard"]
 SIM_NO_CHANGE = CONFIG["speaker_verification"]["similarity_no_change"]
 
-CONF_REJECT = CONFIG["confidence"]["reject_below"]
 CONF_CREATE = CONFIG["confidence"]["create_above"]
-
 DEVICE_MATCH_MIN = CONFIG["device"]["min_match_score"]
 
 MIN_DAYS_BETWEEN_VERSIONS = CONFIG.get("versioning", {}).get(
@@ -26,7 +25,7 @@ MIN_DAYS_BETWEEN_VERSIONS = CONFIG.get("versioning", {}).get(
 # ------------------------------------------------------------
 
 
-def calculate_age(dob: str, recording_date: date) -> int | None:
+def calculate_age(dob: Optional[str], recording_date: date) -> Optional[int]:
     if not dob:
         return None
 
@@ -37,7 +36,7 @@ def calculate_age(dob: str, recording_date: date) -> int | None:
     return age
 
 
-def days_since_last_version() -> int | None:
+def days_since_last_version() -> Optional[int]:
     if not VERSIONS_FILE.exists():
         return None
 
@@ -60,54 +59,44 @@ def decide_voice_version(
     speaker_ok: bool,
     device_match: float,
     embedding_path: str,
-    audio_path: str | None,
-    user_dob: str | None,
+    audio_path: Optional[str],
+    user_dob: Optional[str],
 ):
     """
-    Production-grade voice version decision with:
-    - config-driven thresholds
-    - structured logging
-    - age tagging
-    - time-gap protection
+    Final production-grade decision logic.
+    NO I/O. NO user access. NO confidence rejection.
     """
 
     recording_date = datetime.utcnow().date()
     age_at_recording = calculate_age(user_dob, recording_date)
 
-    # ---------- HARD REJECTS ----------
+    # ==================================================
+    # HARD REJECTS (IDENTITY ONLY)
+    # ==================================================
 
     if not speaker_ok:
         log_event("VERSION_REJECTED", {
             "reason": "speaker_verification_failed",
-            "similarity": similarity,
-            "confidence": confidence
+            "similarity": similarity
         })
         return _reject("Speaker verification failed", similarity, confidence)
 
     if similarity < SIM_REJECT_HARD:
         log_event("VERSION_REJECTED", {
             "reason": "low_similarity",
-            "similarity": similarity,
-            "confidence": confidence
+            "similarity": similarity
         })
-        return _reject("Similarity below threshold", similarity, confidence)
+        return _reject("Similarity below hard threshold", similarity, confidence)
 
-    if confidence < CONF_REJECT:
-        log_event("VERSION_REJECTED", {
-            "reason": "low_confidence",
-            "similarity": similarity,
-            "confidence": confidence
-        })
-        return _reject("Low confidence", similarity, confidence)
-
-    # ---------- SAME VOICE ----------
+    # ==================================================
+    # SAME VOICE (NO NEW VERSION)
+    # ==================================================
 
     if similarity >= SIM_NO_CHANGE:
         log_event("NO_NEW_VERSION", {
             "reason": "voice_stable",
             "similarity": similarity,
-            "confidence": confidence,
-            "age_at_recording": age_at_recording
+            "confidence": confidence
         })
         return {
             "action": "NO_NEW_VERSION",
@@ -117,15 +106,15 @@ def decide_voice_version(
             "age_at_recording": age_at_recording,
         }
 
-    # ---------- TIME GAP CHECK ----------
+    # ==================================================
+    # TIME GAP CHECK
+    # ==================================================
 
     gap_days = days_since_last_version()
     if gap_days is not None and gap_days < MIN_DAYS_BETWEEN_VERSIONS:
         log_event("VERSION_REJECTED", {
             "reason": "min_days_not_elapsed",
-            "gap_days": gap_days,
-            "similarity": similarity,
-            "confidence": confidence
+            "gap_days": gap_days
         })
         return {
             "action": "REJECT",
@@ -135,7 +124,9 @@ def decide_voice_version(
             "age_at_recording": age_at_recording,
         }
 
-    # ---------- VOICE EVOLUTION ----------
+    # ==================================================
+    # CREATE VERSION
+    # ==================================================
 
     if confidence >= CONF_CREATE and device_match >= DEVICE_MATCH_MIN:
         record = create_version_record(
@@ -150,10 +141,8 @@ def decide_voice_version(
 
         log_event("VERSION_CREATED", {
             "version_id": record["version_id"],
-            "similarity": similarity,
             "confidence": confidence,
-            "age_at_recording": age_at_recording,
-            "embedding_path": embedding_path
+            "similarity": similarity
         })
 
         return {
@@ -161,15 +150,23 @@ def decide_voice_version(
             "record": record
         }
 
-    # ---------- FALLBACK ----------
+    # ==================================================
+    # FALLBACK (NOT A REJECT)
+    # ==================================================
 
-    log_event("VERSION_REJECTED", {
-        "reason": "gray_zone",
+    log_event("NO_NEW_VERSION", {
+        "reason": "low_confidence_gray_zone",
         "similarity": similarity,
         "confidence": confidence
     })
 
-    return _reject("Gray zone, insufficient confidence", similarity, confidence)
+    return {
+        "action": "NO_NEW_VERSION",
+        "reason": "Insufficient confidence to version",
+        "confidence": round(confidence, 3),
+        "similarity": round(similarity, 4),
+        "age_at_recording": age_at_recording,
+    }
 
 
 # ------------------ HELPERS ------------------
@@ -185,10 +182,10 @@ def _reject(reason: str, similarity: float, confidence: float):
 
 def create_version_record(
     embedding_path: str,
-    audio_path: str | None,
+    audio_path: Optional[str],
     confidence: float,
     similarity: float,
-    age_at_recording: int | None,
+    age_at_recording: Optional[int],
     recording_date: date,
 ):
     return {
@@ -199,7 +196,7 @@ def create_version_record(
         "audio_path": audio_path,
         "confidence": round(confidence, 3),
         "similarity": round(similarity, 4),
-        "notes": "auto-created"
+        "notes": "auto-created",
     }
 
 

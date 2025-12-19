@@ -1,0 +1,17 @@
+{
+  "user_id": "user_002",
+  "date_of_birth": null,
+  "created_utc": "2025-12-19T17:01:33.962725Z",
+  "registered_devices": [],
+  "voice_versions": [
+    {
+      "version_id": "1766164327",
+      "recorded_utc": "2025-12-19T17:12:07.379712Z",
+      "age_at_recording": 30,
+      "embedding_path": "versions/embeddings/user_002_1766164327.npy",
+      "audio_path": "notebooks/my_voice_19s_clean.wav",
+      "confidence": 1.0,
+      "type": "RECORDED"
+    }
+  ]
+}

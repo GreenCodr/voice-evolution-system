@@ -1,31 +1,30 @@
 # scripts/audio_quality.py
+
 import numpy as np
 import soundfile as sf
 import librosa
 
-# ================= PRODUCTION CONSTANTS =================
-
 TARGET_SR = 16000
+MIN_DURATION_SEC = 10.0
+MIN_SNR_DB = 15.0
+MIN_ACTIVE_RATIO = 0.6
+MIN_RMS_DB = -35.0
 
-MIN_DURATION_SEC = 8.0        # real-world safe (phone calls, notes)
-MIN_ACTIVE_RATIO = 0.6        # % of non-silent speech
-MIN_RMS_DB = -35.0            # silence / very weak mic
-MIN_SNR_DB = 15.0             # robust SNR (speech vs noise)
 
-# ================= HELPERS =================
-
-def rms_db(signal: np.ndarray) -> float:
+def _rms_db(signal: np.ndarray) -> float:
     rms = np.sqrt(np.mean(signal ** 2))
-    if rms <= 1e-9:
+    if rms < 1e-9:
         return -100.0
     return 20 * np.log10(rms)
 
-def robust_snr_db(signal: np.ndarray, sr: int) -> float:
-    """
-    Robust SNR:
-    speech = top-energy frames
-    noise = bottom-energy frames
-    """
+
+def _active_speech_ratio(signal: np.ndarray, sr: int) -> float:
+    intervals = librosa.effects.split(signal, top_db=30)
+    active = sum(end - start for start, end in intervals)
+    return active / len(signal)
+
+
+def _snr_db(signal: np.ndarray, sr: int) -> float:
     frame_len = int(0.025 * sr)
     hop = int(0.010 * sr)
 
@@ -36,22 +35,28 @@ def robust_snr_db(signal: np.ndarray, sr: int) -> float:
         return 0.0
 
     energy_sorted = np.sort(energy)
-    noise_energy = np.mean(energy_sorted[: max(1, int(0.1 * len(energy)))])
-    speech_energy = np.mean(energy_sorted[int(0.9 * len(energy)):])
+    noise = np.mean(energy_sorted[: int(0.1 * len(energy))])
+    speech = np.mean(energy_sorted[int(0.9 * len(energy)):])
 
-    if noise_energy <= 1e-9:
+    if noise < 1e-9:
         return 40.0
 
-    return 10 * np.log10(speech_energy / noise_energy)
+    return 10 * np.log10(speech / noise)
 
-def active_speech_ratio(signal: np.ndarray, sr: int) -> float:
-    intervals = librosa.effects.split(signal, top_db=30)
-    active = sum((end - start) for start, end in intervals)
-    return active / len(signal)
-
-# ================= MAIN GATE =================
 
 def audio_quality_gate(audio_path: str, dev_mode: bool = False) -> dict:
+    """
+    Returns:
+    {
+        accepted: bool,
+        reason: str | None,
+        duration: float,
+        snr_db: float,
+        rms_db: float,
+        active_ratio: float
+    }
+    """
+
     try:
         audio, sr = sf.read(audio_path)
     except Exception as e:
@@ -65,28 +70,24 @@ def audio_quality_gate(audio_path: str, dev_mode: bool = False) -> dict:
         sr = TARGET_SR
 
     duration = len(audio) / sr
-
-    # ---- DEV MODE RELAXATION (ONLY FOR PIPELINE DEBUG) ----
     min_duration = 2.0 if dev_mode else MIN_DURATION_SEC
-    min_snr = 8.0 if dev_mode else MIN_SNR_DB
-    # ------------------------------------------------------
 
     if duration < min_duration:
         return {
             "accepted": False,
-            "reason": f"Too short ({duration:.2f}s)",
+            "reason": f"Audio too short ({duration:.2f}s)",
             "duration": duration
         }
 
-    rms = rms_db(audio)
+    rms = _rms_db(audio)
     if rms < MIN_RMS_DB:
         return {
             "accepted": False,
-            "reason": "Very low signal (silence / bad mic)",
+            "reason": "Signal too weak / silence",
             "rms_db": rms
         }
 
-    active_ratio = active_speech_ratio(audio, sr)
+    active_ratio = _active_speech_ratio(audio, sr)
     if active_ratio < MIN_ACTIVE_RATIO:
         return {
             "accepted": False,
@@ -94,19 +95,21 @@ def audio_quality_gate(audio_path: str, dev_mode: bool = False) -> dict:
             "active_ratio": round(active_ratio, 2)
         }
 
-    snr = robust_snr_db(audio, sr)
+    snr = _snr_db(audio, sr)
+    min_snr = 8.0 if dev_mode else MIN_SNR_DB
+
     if snr < min_snr:
         return {
             "accepted": False,
-            "reason": "Low SNR (noisy environment)",
+            "reason": "Noisy recording (low SNR)",
             "snr_db": round(snr, 2)
         }
 
     return {
         "accepted": True,
+        "reason": None,
         "duration": round(duration, 2),
         "snr_db": round(snr, 2),
         "rms_db": round(rms, 2),
         "active_ratio": round(active_ratio, 2),
-        "reason": None
     }

@@ -1,99 +1,95 @@
 # scripts/hybrid_playback_decider.py
 
-from datetime import datetime
-from typing import Dict, List
-import json
+import sys
 from pathlib import Path
+import numpy as np
 
-USERS_DIR = Path("users")
+# ------------------ PATH FIX ------------------
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# ------------------ CONFIG ------------------
+# ------------------ IMPORTS ------------------
+from scripts.user_registry import UserRegistry
+from scripts.smart_version_selector import select_best_version
+from scripts.age_selector import classify_age_relation
 
-MAX_DIRECT_GAP_YEARS = 1.0     # close enough → recorded
-MAX_INTERP_GAP_YEARS = 6.0     # mid-range → interpolation
-
-# ------------------ HELPERS ------------------
-
-def load_user(user_id: str) -> Dict:
-    path = USERS_DIR / f"{user_id}.json"
-    if not path.exists():
-        raise FileNotFoundError(f"User not found: {user_id}")
-    return json.loads(path.read_text())
-
-
-def years_between(a: int, b: int) -> float:
-    return abs(a - b)
+# ------------------ CONSTANTS ------------------
+AGE_DELTAS_PATH = PROJECT_ROOT / "embeddings" / "age_deltas.npy"
+EMB_DIR = PROJECT_ROOT / "versions" / "embeddings"
 
 
-# ------------------ MAIN LOGIC ------------------
+def decide_playback_mode(user_id: str, target_age: int) -> dict:
+    """
+    Phase-2 playback decision logic
+    """
 
-def decide_playback_mode(user_id: str, target_age: int) -> Dict:
-    user = load_user(user_id)
-    versions = user.get("voice_versions", [])
+    user = UserRegistry(user_id)
+    versions = user.get_versions()
 
     if not versions:
-        return {
-            "mode": "NONE",
-            "reason": "No voice data available"
-        }
+        return {"mode": "NONE", "reason": "no_voice_versions"}
 
-    # Keep only versions with age info
-    aged = [
-        v for v in versions
-        if v.get("age_at_recording") is not None
-    ]
-
-    if not aged:
-        return {
-            "mode": "PREDICTED",
-            "reason": "No age-tagged versions"
-        }
-
-    # Sort by age
-    aged.sort(key=lambda v: v["age_at_recording"])
-
-    # Find nearest versions
-    below = [v for v in aged if v["age_at_recording"] <= target_age]
-    above = [v for v in aged if v["age_at_recording"] >= target_age]
-
-    nearest = min(
-        aged,
-        key=lambda v: years_between(v["age_at_recording"], target_age)
+    # 1️⃣ Select best recorded version
+    selection = select_best_version(
+        versions=versions,
+        target_age=target_age
     )
 
-    gap = years_between(nearest["age_at_recording"], target_age)
-
-    # -------- Decision Tree --------
-
-    # 1️⃣ Direct recorded
-    if gap <= MAX_DIRECT_GAP_YEARS:
+    # ---- RECORDED PATH ----
+    if selection["mode"] == "RECORDED":
         return {
             "mode": "RECORDED",
-            "version": nearest,
-            "reason": "Exact or very close age match"
+            "version": selection["version"],
+            "reason": "real_voice_close_to_target",
+            "age_gap": selection.get("age_gap"),
         }
 
-    # 2️⃣ Interpolation possible
-    if below and above:
-        lower = below[-1]
-        upper = above[0]
+    # ---- AGED PATH ----
+    base_version = user.get_latest_version()
+    if not base_version or not base_version.get("embedding_path"):
+        return {"mode": "NONE", "reason": "no_embedding_available"}
 
-        span = years_between(
-            lower["age_at_recording"],
-            upper["age_at_recording"]
-        )
+    base_age = base_version.get("age_at_recording")
 
-        if span <= MAX_INTERP_GAP_YEARS:
-            return {
-                "mode": "INTERPOLATED",
-                "lower": lower,
-                "upper": upper,
-                "reason": "Interpolating between two nearby versions"
-            }
+    relation = classify_age_relation(base_age, target_age)
+    if relation == "same":
+        return {
+            "mode": "RECORDED",
+            "version": base_version,
+            "reason": "same_age_requested",
+        }
 
-    # 3️⃣ Fallback to prediction
+    # Load base embedding
+    base_emb = np.load(PROJECT_ROOT / base_version["embedding_path"])
+    base_emb /= np.linalg.norm(base_emb)
+
+    # ✅ Load age deltas (FIXED)
+    age_deltas = np.load(AGE_DELTAS_PATH, allow_pickle=True).item()
+
+    delta_key = (
+        "children_to_adult"
+        if relation == "future"
+        else "adult_to_children"
+    )
+
+    if delta_key not in age_deltas:
+        return {"mode": "NONE", "reason": f"missing_delta:{delta_key}"}
+
+    delta = age_deltas[delta_key]
+
+    years = abs((base_age or target_age) - target_age)
+    alpha = min(years / 40.0, 1.0)
+
+    aged_emb = base_emb + alpha * delta
+    aged_emb /= np.linalg.norm(aged_emb)
+
     return {
-        "mode": "PREDICTED",
-        "nearest": nearest,
-        "reason": "Outside known voice range"
-    }
+    "mode": "AGED",
+    "embedding": aged_emb,
+    "base_version": base_version,   # ✅ REQUIRED
+    "target_age": target_age,
+    "alpha": round(alpha, 2),
+    "relation": relation,
+    "reason": "age_delta_applied"
+}

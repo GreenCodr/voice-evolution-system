@@ -1,76 +1,57 @@
 # scripts/smart_version_selector.py
 
-import json
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List
-
-USERS_DIR = Path("users")
-
-# ------------------ CONFIG ------------------
-
-MIN_CONFIDENCE = 0.80      # ignore weak versions
-CONF_WEIGHT = 0.6          # confidence importance
-TIME_WEIGHT = 0.4          # age proximity importance
-
-# ------------------ HELPERS ------------------
-
-def load_user(user_id: str) -> Dict:
-    path = USERS_DIR / f"{user_id}.json"
-    if not path.exists():
-        raise FileNotFoundError(f"User not found: {user_id}")
-    return json.loads(path.read_text())
+from typing import List, Dict
 
 
-def score_version(v: Dict, target_age: int) -> float:
+def select_best_version(*, versions: List[Dict], target_age: int) -> Dict:
     """
-    Higher score = better choice
+    Phase-2 smart selector:
+    - Prefer real recorded voices close to target age
+    - Fallback to generated voice if none exist
+
+    Parameters
+    ----------
+    versions : list of voice version dicts
+    target_age : int
+
+    Returns
+    -------
+    dict with playback decision
     """
-    confidence = v.get("confidence", 0.0)
-    age = v.get("age_at_recording")
-
-    if age is None:
-        age_penalty = 1.0
-    else:
-        age_penalty = 1.0 / (1.0 + abs(age - target_age))
-
-    score = (
-        CONF_WEIGHT * confidence +
-        TIME_WEIGHT * age_penalty
-    )
-    return round(score, 4)
-
-
-# ------------------ MAIN LOGIC ------------------
-
-def select_best_version(user_id: str, target_age: int) -> Dict:
-    user = load_user(user_id)
-    versions = user.get("voice_versions", [])
 
     if not versions:
-        raise ValueError("No voice versions available")
+        return {
+            "mode": "GENERATED",
+            "reason": "no_recorded_versions"
+        }
 
-    # 1️⃣ Filter low-confidence versions
-    strong_versions = [
-        v for v in versions
-        if v.get("confidence", 0) >= MIN_CONFIDENCE
-    ]
+    best = None
+    best_gap = float("inf")
 
-    if not strong_versions:
-        raise ValueError("No high-confidence versions available")
+    for v in versions:
+        age = v.get("age_at_recording")
 
-    # 2️⃣ Score each version
-    scored = []
-    for v in strong_versions:
-        s = score_version(v, target_age)
-        scored.append((s, v))
+        # Skip versions without age info
+        if age is None:
+            continue
 
-    # 3️⃣ Pick best
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_version = scored[0]
+        gap = abs(age - target_age)
 
+        if gap < best_gap:
+            best_gap = gap
+            best = v
+
+    # ✅ Rule: within 5 years → use recorded voice
+    if best and best_gap <= 5:
+        return {
+            "mode": "RECORDED",
+            "version": best,
+            "age_gap": best_gap
+        }
+
+    # ❌ Otherwise → generated voice
     return {
-        "selected_version": best_version,
-        "selection_score": best_score,
-        "strategy": "confidence-weighted"
+        "mode": "GENERATED",
+        "reason": "no_close_real_voice",
+        "closest_gap": best_gap if best else None
     }

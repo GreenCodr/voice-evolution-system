@@ -119,3 +119,23 @@ class UserRegistry:
             self.data["voice_versions"],
             key=lambda v: v["recorded_utc"]
         )[-1]
+
+
+# ======================================================================
+# 🔥 BACKWARD-COMPATIBILITY FUNCTIONS (THIS FIXES YOUR LOOP)
+# ======================================================================
+
+def load_user(user_id: str) -> dict:
+    """
+    Legacy API used by process_new_voice and older pipeline code.
+    """
+    return UserRegistry(user_id).data
+
+
+def save_user(user_id: str, data: dict) -> None:
+    """
+    Legacy API used by process_new_voice and older pipeline code.
+    """
+    reg = UserRegistry(user_id)
+    reg.data = data
+    reg._save()

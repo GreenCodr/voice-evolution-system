@@ -1,51 +1,36 @@
-# scripts/build_age_embedding_dataset.py
-
-import json
-import csv
-from pathlib import Path
 import numpy as np
+import pandas as pd
+from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-USERS_DIR = PROJECT_ROOT / "users"
-OUT_FILE = PROJECT_ROOT / "learning" / "age_embedding_dataset.csv"
+FEATURES = Path("datasets/common_voice/age_audio/features/age_features.csv")
+OUT = Path("embeddings/age_deltas.npy")
 
-OUT_FILE.parent.mkdir(exist_ok=True)
+df = pd.read_csv(FEATURES)
 
-FIELDS = ["user_id", "version_id", "age_at_recording", "embedding_path"]
+# Split groups
+children = df[df["age_group"] == "children"]
+adult = df[df["age_group"] == "adult"]
 
-def main():
-    rows = []
+FEATURE_COLS = [
+    "mean_pitch",
+    "pitch_std",
+    "spectral_centroid",
+    "spectral_rolloff",
+    "rms_energy",
+    "speaking_rate"
+]
 
-    for user_file in USERS_DIR.glob("*.json"):
-        with open(user_file, encoding="utf-8") as f:
-            user = json.load(f)
+# Compute centroids
+child_centroid = children[FEATURE_COLS].mean().values
+adult_centroid = adult[FEATURE_COLS].mean().values
 
-        user_id = user["user_id"]
+# Age delta (GLOBAL)
+age_deltas = {
+    "children_to_adult": adult_centroid - child_centroid,
+    "adult_to_children": child_centroid - adult_centroid
+}
 
-        for v in user.get("voice_versions", []):
-            if v.get("age_at_recording") is None:
-                continue
+np.save(OUT, age_deltas)
 
-            rows.append({
-                "user_id": user_id,
-                "version_id": v["version_id"],
-                "age_at_recording": v["age_at_recording"],
-                "embedding_path": v["embedding_path"]
-            })
-
-    if not rows:
-        print("❌ No age-tagged data found")
-        return
-
-    with open(OUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"✅ Age-embedding dataset created")
-    print(f"📄 Saved to: {OUT_FILE}")
-    print(f"🔢 Samples: {len(rows)}")
-
-
-if __name__ == "__main__":
-    main()
+print("✅ Age delta embeddings rebuilt")
+print("Keys:", age_deltas.keys())
