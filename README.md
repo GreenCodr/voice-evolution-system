@@ -112,4 +112,75 @@ The project includes a Streamlit web app that allows:
 	•	Digital legacy preservation
 	•	Forensic & historical voice analysis
 	•	AI assistants with temporal voice memory
+
+	🚀 How to Run the Voice Evolution System Locally
+	
+1️⃣ Prerequisites
+
+Make sure the following are installed on your system:
+	•	Git
+	•	Anaconda / Miniconda
+	•	Python 3.9 or 3.10 (via Conda – recommended)
+	•	FFmpeg (required for audio processing)
+# macOS
+brew install ffmpeg
+
+# Ubuntu
+sudo apt install ffmpeg
+
+2️⃣ Clone the Repository
+git clone https://github.com/GreenCodr/voice-evolution-system.git
+
+cd voice-evolution-system
+
+3️⃣ Create & Activate Conda Environment
+
+step1 - conda create -n voice-evo python=3.10 -y
+
+step 2-conda activate voice-evo
+
+4️⃣ Install Dependencies
+pip install -r requirements.txt
+
+5️⃣ Project Structure Overview (Important)
+voice-evolution-system/
+│
+├── frontend/            # Streamlit UI
+├── scripts/             # Core pipelines (age, DSP, playback, detection)
+├── users/               # User metadata (JSON)
+├── config/              # Age profiles & configs
+├── outputs/             # Generated audio (gitignored)
+├── cache/               # Audio cache (gitignored)
+├── models/              # Trained models (gitignored)
+└── README.md
+
+6️⃣ Run the Frontend (Recommended)
+streamlit run frontend/app.py
+
+7️⃣ Run Test age-based playback directly
+Backend Only (Optional)
+python - << 'EOF'
+from scripts.playback_service import play_voice
+
+result = play_voice(
+    user_id="user_002",
+    target_age=60,
+    text="Hello, this is how my voice may sound in the future."
+)
+
+print(result)
+EOF
+
+Generated audio will appear in:
+outputs/
+
+8️⃣ Creating a New User (If Needed)
+users/user_001.json
+users/user_002.json
+
+9️⃣ Important Notes
+conda activate voice-evo
+
+
+	
   
