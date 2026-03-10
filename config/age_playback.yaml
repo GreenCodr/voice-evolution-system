@@ -1,0 +1,56 @@
+# config/age_playback.yaml
+# Configuration for Part 2: Age-Specific Voice Playback
+
+age_playback:
+
+  # Voice decoder model selection
+  # Options: auto | xtts | dsp
+  # "auto" → tries XTTS first, falls back to DSP
+  # "dsp"  → always use DSP (fast, no download required)
+  decoder_model: "dsp"
+
+  # Where to cache pretrained model weights
+  decoder_weights_dir: "pretrained_models/voice_decoder/"
+
+  # ─────────────────────────────────────────────
+  # Age-to-pitch mapping (Hz) for reference
+  # These guide DSP pitch shifts when no stored recording is available
+  # ─────────────────────────────────────────────
+  age_pitch_curve:
+    child_8:   260
+    teen_14:   200
+    adult_25:  120
+    middle_40: 115
+    senior_65: 130
+
+  # ─────────────────────────────────────────────
+  # Interpolation
+  # ─────────────────────────────────────────────
+  # "spherical" uses slerp in embedding space (better for high-dim)
+  # "linear" uses linear interpolation
+  interpolation_method: "spherical"
+
+  # If age gap to nearest stored version is below this, use DSP only
+  # (no need for heavy interpolation for small gaps)
+  min_age_for_dsp_only: 2.0
+
+  # ─────────────────────────────────────────────
+  # Quality
+  # ─────────────────────────────────────────────
+  # SNR threshold for the output quality check (dB)
+  quality_check_snr_threshold: 10.0
+
+  # Always fall back to DSP if neural decoder output fails quality check
+  fallback_to_dsp: true
+
+  # ─────────────────────────────────────────────
+  # Future prediction limits
+  # ─────────────────────────────────────────────
+  # Don't predict more than this many years ahead of the latest recording
+  max_future_prediction_years: 40
+
+  # ─────────────────────────────────────────────
+  # Output
+  # ─────────────────────────────────────────────
+  output_dir: "data/outputs/age_playback/"
+  sample_rate: 16000

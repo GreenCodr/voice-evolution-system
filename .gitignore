@@ -1,82 +1,83 @@
+# ==============================
 # Python
-__pycache__/
-*.pyc
-
-# Environments
-.env
-.venv
-env/
-voice-evo/
-
-# OS
-.DS_Store
-
-# ======================
-# LARGE / RUNTIME FILES
-# ======================
-
-# Datasets
-datasets/
-data/
-notebooks/
-
-# Models & weights
-models/*.pt
-learning/models/*.joblib
-
-# Embeddings
-embeddings/
-versions/
-*.npy
-
-# Logs
-*.log
-
-# Streamlit secrets
-.streamlit/secrets.toml# ====================
-# Minimal gitignore
-# (Only system junk)
-# ====================
-
-# OS
-.DS_Store
-
-# Editor
-.idea/
-.vscode/
-
-# Python cache (safe to ignore)
+# ==============================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-# ===============================
-# Generated audio & runtime data
-# ===============================
+*.egg-info/
+.eggs/
+
+# ==============================
+# Virtual Environments
+# ==============================
+.env
+.venv
+env/
+venv/
+voice-evo/
+
+# ==============================
+# OS / Editor
+# ==============================
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
+
+# ==============================
+# Streamlit secrets
+# ==============================
+.streamlit/secrets.toml
+
+# ==============================
+# LARGE TRAINING DATA & DATASETS
+# ==============================
+training/dataset/
+training/dataset/**
+
+# ==============================
+# LARGE MODEL WEIGHTS (>50MB)
+# Keep small trained models in training/models/
+# ==============================
+models/hifigan/generator_v3
+pretrained_models/
+hifi-gan/
+
+# ==============================
+# Runtime data (generated at runtime)
+# ==============================
+data/
 outputs/
 cache/
 runtime/
+embeddings/
+versions/audio/
+versions/embeddings/
+logs/
 
-# ===============================
-# Trained models (large binaries)
-# ===============================
-models/
-
-# ===============================
-# Experimental / disabled DSP
-# ===============================
-scripts/_disabled_dsp/
-
-# ===============================
-# Python junk
-# ===============================
-__pycache__/
-*.pyc
-
-# local caches / artifacts
-pretrained_models/
-*.egg-info/
-
-# users: ignore all, but keep template users like users/user_001.json etc
+# ==============================
+# User personal data
+# ==============================
 users/*.json
-!users/user_*.json
+
+# ==============================
+# Audio files (recordings/baselines)
+# ==============================
+baseline/
+baseline.mp3
+*.wav
+*.mp3
+*.flac
+ingest_vctk*.log
+
+# ==============================
+# NumPy arrays & tensors
+# ==============================
+*.npy
+
+# ==============================
+# Misc
+# ==============================
+notebooks/
+scripts/_disabled_dsp/

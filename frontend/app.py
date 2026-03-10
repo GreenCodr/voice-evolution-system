@@ -213,121 +213,244 @@ def run_app():
     st.divider()
 
     # ==============================================================
-    # PHASE 2 — AGE-BASED PLAYBACK (DSP, 5–70)
+    # PART 2 — AGE-SPECIFIC VOICE PLAYBACK (from stored versions)
     # ==============================================================
-    st.header("🎧 Age-Based Voice Playback (5–70)")
-    st.caption("Upload → pick age → generate voice. Also generate a sample pack ZIP.")
+    st.header("🎧 Age-Specific Voice Playback")
+    st.caption(
+        "Plays your stored voice recordings at any age — past, present, or future. "
+        "Requires at least one voice version recorded via Part 1 above."
+    )
 
-    from voice_age.config import MIN_AGE, MAX_AGE, DEFAULT_SR
-    from voice_age.age.control import apply_age_control
-
+    import numpy as np
     import soundfile as sf
     import librosa
+    from voice_age.config import DEFAULT_SR
 
-    uploaded2 = st.file_uploader(
-        "Upload voice audio for age playback (wav/mp3/m4a/aac/flac/ogg)",
-        type=["wav", "mp3", "m4a", "aac", "flac", "ogg"],
-        key="phase2_upload",
-    )
+    # Lazy import so Part 1 still works if Part 2 has an issue
+    try:
+        from voice_age.age.playback import AgePlaybackService
+        _playback_available = True
+    except Exception as _p2e:
+        _playback_available = False
+        st.error(f"Age Playback module could not be loaded: {_p2e}")
 
-    age = st.slider(
-        "Target age",
-        min_value=int(MIN_AGE),
-        max_value=int(MAX_AGE),
-        value=25,
-        step=1,
-        key="phase2_age",
-    )
+    if _playback_available:
 
-    step = st.selectbox(
-        "Sample pack step (ZIP)",
-        [1, 2, 5, 10],
-        index=2,
-        key="phase2_step",
-    )
+        # ── Service (one per user, cached for the session) ──────────────────
+        @st.cache_resource(show_spinner=False)
+        def _get_service(uid: str) -> "AgePlaybackService":
+            return AgePlaybackService(uid, decoder_model="dsp")
 
-    colA, colB = st.columns(2)
-    btn_single = colA.button("Generate for this age", key="phase2_btn_single")
-    btn_pack = colB.button("Generate sample pack", key="phase2_btn_pack")
+        svc = _get_service(selected_user)
+        timeline_entries = svc.get_timeline()
+        earliest_age, latest_age, predicted_max = svc.get_available_range()
 
-    st.divider()
-
-    if uploaded2 is None:
-        st.info("Upload an audio file to generate age-based voice.")
-        return
-
-    with tempfile.TemporaryDirectory() as td:
-        td = Path(td)
-
-        suffix = Path(uploaded2.name).suffix.lower()
-        raw_path = td / f"input{suffix}"
-        raw_path.write_bytes(uploaded2.getbuffer())
-
-        # Standardize to DEFAULT_SR mono WAV
-        wav_path = td / "input_std.wav"
-        try:
-            ffmpeg_to_wav_16k_mono(raw_path, wav_path, sr=int(DEFAULT_SR))
-        except Exception as e:
-            st.error(
-                "Audio conversion failed. ffmpeg is probably missing.\n\n"
-                "For Streamlit Cloud: add `ffmpeg` to `packages.txt`."
+        # ── DOB / current age display ───────────────────────────────────────
+        dob_str = user.get("date_of_birth")
+        if dob_str:
+            ca = svc.current_age
+            st.success(
+                f"Date of Birth: **{dob_str}**  ·  "
+                f"Current estimated age: **{ca:.0f}**" if ca is not None
+                else f"Date of Birth: **{dob_str}**"
             )
-            st.code(str(e))
-            return
-
-        # Load standardized audio
-        wav, sr = librosa.load(str(wav_path), sr=int(DEFAULT_SR), mono=True)
-        wav = wav.astype("float32")
-
-        st.subheader("Input preview (standardized)")
-        st.audio(read_bytes(wav_path), format="audio/wav")
-        st.write(f"Processing sample rate: {sr} Hz")
-
-        # ---------------- Single age output ----------------
-        if btn_single:
-            outdir = PROJECT_ROOT / "data" / "outputs" / "ui_single"
-            outdir.mkdir(parents=True, exist_ok=True)
-
-            out_path = outdir / f"{selected_user}_age_{age}.wav"
-            y = apply_age_control(wav, sr, float(age))
-            sf.write(str(out_path), y, sr)
-
-            st.success(f"Generated: {out_path}")
-            st.audio(read_bytes(out_path), format="audio/wav")
-            st.download_button(
-                "Download age WAV",
-                data=read_bytes(out_path),
-                file_name=out_path.name,
-                mime="audio/wav",
+        else:
+            st.warning(
+                "No date of birth set for this user — "
+                "set one when creating the user to enable age mapping."
             )
 
-        # ---------------- Pack output ----------------
-        if btn_pack:
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            outdir = PROJECT_ROOT / "data" / "outputs" / "ui_packs" / f"pack_{selected_user}_{ts}_step{step}"
-            outdir.mkdir(parents=True, exist_ok=True)
-
-            prog = st.progress(0)
-            ages = list(range(int(MIN_AGE), int(MAX_AGE) + 1, int(step)))
-
-            for i, a in enumerate(ages, start=1):
-                y = apply_age_control(wav, sr, float(a))
-                out_path = outdir / f"age_{a}.wav"
-                sf.write(str(out_path), y, sr)
-                prog.progress(int(i * 100 / len(ages)))
-
-            zip_bytes = make_zip_bytes(outdir)
-
-            st.success(f"Sample pack ready: {outdir}  ({len(ages)} files)")
-            st.download_button(
-                "Download ZIP (all samples)",
-                data=zip_bytes,
-                file_name=f"{selected_user}_voice_samples_{ts}_step{step}.zip",
-                mime="application/zip",
+        # ── Timeline visualisation ──────────────────────────────────────────
+        if timeline_entries:
+            st.subheader("Voice Version Timeline")
+            dated = [e for e in timeline_entries if e["age_at_recording"] is not None]
+            if dated:
+                num_cols = min(len(dated), 6)
+                cols = st.columns(num_cols)
+                for i, entry in enumerate(dated[:num_cols]):
+                    with cols[i]:
+                        st.caption(
+                            f"**Age {entry['age_at_recording']:.0f}**\n"
+                            f"{entry['recorded_utc'][:10]}\n"
+                            f"conf: {entry['confidence']:.2f}"
+                        )
+                        if entry["audio_exists"]:
+                            st.audio(Path(entry["audio_path"]).read_bytes(), format="audio/wav")
+                        else:
+                            st.caption("_(audio file missing)_")
+            else:
+                st.info("No recordings with age information found yet.")
+        else:
+            st.info(
+                "No voice versions stored yet. "
+                "Upload a recording in the section above first."
             )
 
-            st.write("Listen in order:")
-            for a in ages:
-                p = outdir / f"age_{a}.wav"
-                st.markdown(f"**Age {a}**")
-                st.audio(read_bytes(p), format="audio/wav")
+        # ── Available range ─────────────────────────────────────────────────
+        if earliest_age is not None:
+            st.info(
+                f"Stored recordings span **age {earliest_age:.0f}** to **age {latest_age:.0f}**. "
+                f"Future predictions available up to **age {predicted_max:.0f}**."
+            )
+
+        st.divider()
+
+        # ── Query section ───────────────────────────────────────────────────
+        st.subheader("Generate Voice at a Specific Age")
+
+        query_mode = st.radio(
+            "Query type",
+            ["Play at age", "Play as of year", "Play N years from now"],
+            horizontal=True,
+            key="p2_query_mode",
+        )
+
+        p2_age = p2_year = p2_future_years = None
+        if query_mode == "Play at age":
+            p2_age = st.number_input(
+                "Target age (years)", min_value=1, max_value=100, value=25, step=1,
+                key="p2_age_input",
+            )
+        elif query_mode == "Play as of year":
+            p2_year = st.number_input(
+                "Year", min_value=1950, max_value=datetime.utcnow().year + 50,
+                value=datetime.utcnow().year - 5, step=1,
+                key="p2_year_input",
+            )
+        else:
+            p2_future_years = st.number_input(
+                "Years from now", min_value=1, max_value=40, value=10, step=1,
+                key="p2_future_input",
+            )
+
+        btn_generate = st.button("Generate Voice", key="p2_generate_btn")
+
+        if btn_generate:
+            if not timeline_entries:
+                st.error("No voice versions stored. Upload a recording in Part 1 first.")
+            else:
+                with st.spinner("Generating age-adjusted voice…"):
+                    try:
+                        if query_mode == "Play at age":
+                            result = svc.play_at_age(float(p2_age))
+                        elif query_mode == "Play as of year":
+                            result = svc.play_at_year(int(p2_year))
+                        else:
+                            result = svc.play_in_future(float(p2_future_years))
+
+                        # Normalize output
+                        audio_out = result.audio.astype("float32")
+                        mx = float(np.abs(audio_out).max() + 1e-9)
+                        if mx > 1.0:
+                            audio_out = audio_out / mx * 0.9
+
+                        # Save to disk
+                        outdir = PROJECT_ROOT / "data" / "outputs" / "age_playback"
+                        outdir.mkdir(parents=True, exist_ok=True)
+                        ts = time.strftime("%Y%m%d_%H%M%S")
+                        out_path = (
+                            outdir
+                            / f"{selected_user}_age_{result.target_age:.0f}_{ts}.wav"
+                        )
+                        sf.write(str(out_path), audio_out, result.sr)
+
+                        st.success("Generated successfully!")
+                        st.audio(out_path.read_bytes(), format="audio/wav")
+                        st.download_button(
+                            "Download WAV",
+                            data=out_path.read_bytes(),
+                            file_name=out_path.name,
+                            mime="audio/wav",
+                            key="p2_download",
+                        )
+
+                        # Generation info panel
+                        st.subheader("Generation Info")
+                        ci1, ci2, ci3 = st.columns(3)
+                        ci1.metric("Target Age", f"{result.target_age:.1f}")
+                        ci2.metric("Source Age", f"{result.source_age:.1f}")
+                        ci3.metric("Confidence", f"{result.confidence:.2f}")
+                        st.write(f"**Method:** `{result.method}`")
+                        st.write(f"**Source:** {result.source_info}")
+                        if result.versions_used:
+                            st.write(f"**Versions used:** {', '.join(result.versions_used)}")
+                        if result.interp_weight is not None:
+                            st.write(f"**Interpolation weight:** {result.interp_weight:.2f}")
+
+                    except ValueError as ve:
+                        st.error(str(ve))
+                    except FileNotFoundError as fe:
+                        st.error(f"Audio file missing: {fe}")
+                    except Exception as exc:
+                        st.error(f"Generation failed: {exc}")
+                        st.exception(exc)
+
+        st.divider()
+
+        # ── Age sweep sample pack ───────────────────────────────────────────
+        st.subheader("Age Sweep Sample Pack")
+        st.caption(
+            "Generates a ZIP of your voice at every age in a range, "
+            "using stored recordings as the reference signal."
+        )
+
+        if not timeline_entries:
+            st.info("Upload recordings in Part 1 to enable sample packs.")
+        else:
+            sw1, sw2 = st.columns(2)
+            sweep_min = sw1.number_input(
+                "Start age", min_value=5, max_value=95, value=20, step=1,
+                key="sweep_min",
+            )
+            sweep_max = sw2.number_input(
+                "End age", min_value=6, max_value=100, value=70, step=1,
+                key="sweep_max",
+            )
+            sweep_step = st.selectbox(
+                "Step (years)", [1, 2, 5, 10], index=2, key="sweep_step"
+            )
+            btn_sweep = st.button("Generate Sweep ZIP", key="sweep_btn")
+
+            if btn_sweep:
+                if int(sweep_min) >= int(sweep_max):
+                    st.error("Start age must be less than end age.")
+                else:
+                    sweep_ages = list(
+                        range(int(sweep_min), int(sweep_max) + 1, int(sweep_step))
+                    )
+                    ts = time.strftime("%Y%m%d_%H%M%S")
+                    sweep_dir = (
+                        PROJECT_ROOT / "data" / "outputs" / "age_playback"
+                        / f"sweep_{selected_user}_{ts}"
+                    )
+                    sweep_dir.mkdir(parents=True, exist_ok=True)
+                    prog = st.progress(0)
+                    errors = 0
+                    for i, a in enumerate(sweep_ages, start=1):
+                        try:
+                            res = svc.play_at_age(float(a))
+                            wav_out = res.audio.astype("float32")
+                            mx = float(np.abs(wav_out).max() + 1e-9)
+                            if mx > 1.0:
+                                wav_out = wav_out / mx * 0.9
+                            sf.write(str(sweep_dir / f"age_{a:03d}.wav"), wav_out, res.sr)
+                        except Exception as exc:
+                            errors += 1
+                        prog.progress(int(i * 100 / len(sweep_ages)))
+
+                    zip_bytes = make_zip_bytes(sweep_dir)
+                    msg = f"Sweep ready: {len(sweep_ages) - errors} files"
+                    if errors:
+                        msg += f" ({errors} skipped)"
+                    st.success(msg)
+                    st.download_button(
+                        "Download Sweep ZIP",
+                        data=zip_bytes,
+                        file_name=f"{selected_user}_sweep_{ts}.zip",
+                        mime="application/zip",
+                        key="sweep_download",
+                    )
+
+
+if __name__ == "__main__" or True:
+    run_app()

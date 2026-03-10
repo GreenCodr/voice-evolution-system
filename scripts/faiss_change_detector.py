@@ -5,7 +5,12 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple
-import faiss
+
+# ✅ FAISS is optional on Streamlit Cloud
+try:
+    import faiss
+except Exception:
+    faiss = None
 
 # ------------------ PATH SETUP ------------------
 
@@ -24,7 +29,7 @@ from scripts.confidence_engine import compute_confidence
 from scripts.version_decision import decide_voice_version
 from user_registry import UserRegistry
 
-from scripts.audio_preprocess import normalize_audio  # ✅ NEW (same as Phase-2)
+from scripts.audio_preprocess import normalize_audio  # ✅ same as Phase-2
 
 try:
     from register_version import register_version
@@ -40,7 +45,7 @@ MANIFEST_EMB = PROJECT_ROOT / "data" / "librispeech_manifest_small_emb.csv"
 
 THRESHOLD = 0.75
 
-# ✅ NEW: make speaker verification consistent with Phase-2
+# Make speaker verification consistent with Phase-2
 SPEAKER_THRESHOLD = 0.75
 
 # ------------------ HELPERS ------------------
@@ -54,7 +59,12 @@ def normalize(e: np.ndarray) -> np.ndarray:
     return e if n == 0 else e / n
 
 
-def build_index(embs: list) -> Optional[faiss.Index]:
+def build_index(embs: list):
+    """
+    Returns a FAISS index if faiss is installed, otherwise None.
+    """
+    if faiss is None:
+        return None
     if not embs:
         return None
     dim = embs[0].shape[0]
@@ -63,11 +73,20 @@ def build_index(embs: list) -> Optional[faiss.Index]:
     return index
 
 
+def best_similarity_fallback(new_emb: np.ndarray, embs: list) -> float:
+    """
+    Pure numpy fallback: since embeddings are normalized, dot product == cosine similarity.
+    """
+    if not embs:
+        return 0.0
+    return float(max(np.dot(new_emb, e) for e in embs))
+
+
 # ------------------ 🔥 REQUIRED FUNCTION ------------------
 
 def detect_change(user_id: str, new_embedding: np.ndarray) -> Tuple[bool, float]:
     """
-    Core FAISS change detector used by process_new_voice()
+    Core change detector used by pipeline.
 
     Returns:
         (change_detected, best_similarity)
@@ -84,7 +103,7 @@ def detect_change(user_id: str, new_embedding: np.ndarray) -> Tuple[bool, float]
     for v in versions:
         emb_rel = v.get("embedding_path")
         if not emb_rel:
-            continue   # sparse data case
+            continue
 
         emb_path = PROJECT_ROOT / emb_rel
         if emb_path.exists():
@@ -93,11 +112,14 @@ def detect_change(user_id: str, new_embedding: np.ndarray) -> Tuple[bool, float]
     if not embeddings:
         return True, 0.0
 
-    index = build_index(embeddings)
     new_emb = normalize(new_embedding)
 
-    D, _ = index.search(np.expand_dims(new_emb, 0), 1)
-    best_sim = float(D[0][0])
+    index = build_index(embeddings)
+    if index is None:
+        best_sim = best_similarity_fallback(new_emb, embeddings)
+    else:
+        D, _ = index.search(np.expand_dims(new_emb, 0), 1)
+        best_sim = float(D[0][0])
 
     change_detected = best_sim < THRESHOLD
     return change_detected, best_sim
@@ -141,9 +163,13 @@ def main(threshold: float = THRESHOLD) -> int:
         emb = normalize(load_embedding(emb_path))
 
         best_sim = -1.0
-        if index is not None:
-            D, _ = index.search(np.expand_dims(emb, 0), 1)
-            best_sim = float(D[0][0])
+        if index is None:
+            if version_embs:
+                best_sim = best_similarity_fallback(emb, version_embs)
+        else:
+            if index is not None:
+                D, _ = index.search(np.expand_dims(emb, 0), 1)
+                best_sim = float(D[0][0])
 
         row = manifest.get(emb_path.name)
         if not row:
@@ -154,7 +180,7 @@ def main(threshold: float = THRESHOLD) -> int:
         if not audio_path.exists():
             continue
 
-        # ✅ NEW: normalize audio like Phase-2 (reduces Cloud drift)
+        # Normalize audio like Phase-2
         try:
             clean_audio = normalize_audio(audio_path)
         except Exception:

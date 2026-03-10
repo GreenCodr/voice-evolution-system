@@ -1,256 +1,375 @@
----
-title: upwork
-emoji: 🎙️
-colorFrom: purple
-colorTo: indigo
-sdk: docker
-app_port: 8501
-pinned: false
----
 # 🎙️ Voice Evolution System
 
-Automatic Voice Change Detection, Age-Based Playback & Future Voice Prediction
+> **Track how your voice changes over time — and hear what it sounded like at any age, past or future.**
 
-> This repository implements a real-world AI system that continuously tracks how a person’s voice evolves over time, detects meaningful changes automatically, and enables realistic playback of a voice at any age (past or predicted).
+The Voice Evolution System is an AI-powered application that:
+- **Records & detects** meaningful changes in your voice over time (puberty, aging, illness, etc.)
+- **Stores versioned snapshots** of your voice with timestamps and age tags
+- **Generates realistic audio** of your voice at any age — age 10, age 60, or 20 years from now
 
----
-
-## Quick visual distinction
-- All explanatory text (descriptions, features, architecture, notes) appears as normal Markdown content (headings, lists, paragraphs).
-- All commands you should run in your terminal are shown in fenced code blocks labeled with the shell or language (e.g., bash, sh, python). This makes commands easy to spot and copy.
-
----
-
-## Problem this project solves (text)
-Human voices change naturally due to:
-- Age
-- Health
-- Emotion
-- Environment
-- Recording devices
-
-Today, there is no standard system that preserves a user's voice evolution intelligently. This project addresses that by:
-- Automatically detecting significant voice changes
-- Creating voice versions over time
-- Allowing age-based playback like:
-  - "Play my voice at age 8"
-  - "How will my voice sound at 60?"
-  - "Play my voice from 2015"
+Built with Python, PyTorch, SpeechBrain, and Streamlit.
 
 ---
 
-## Core Features (text)
+## 📸 Demo
 
-### ✅ Phase 1 — Automatic Voice Change Detection
-- Audio quality gating (duration, SNR)
-- Speaker verification (ECAPA / wav2vec embeddings)
-- Device fingerprint matching
-- Confidence scoring
-- FAISS similarity search
-- Automatic version creation
-- Version history storage
-
-### ✅ Phase 2 — Age-Specific Voice Playback
-- Voice timeline per user
-- Age mapping using Date of Birth
-- Closest-age voice selection
-- SLERP interpolation between versions
-- Past & future extrapolation
-- Clear labeling:
-  - RECORDED
-  - INTERPOLATED
-  - PREDICTED
-- XTTS-based voice synthesis
-- Rate limiting & audio caching
-- Metadata tagging
-
-### ✅ Phase 3 — Lightweight Learning (Optional)
-- Builds an age-embedding dataset
-- Tries learning age-to-voice deltas with small auxiliary models
-- No heavy GPU training required
-- Graceful fallback to rule-based logic when training data is insufficient
-
-> Note: The system is intentionally robust even without training data.
+| Feature | Description |
+|---|---|
+| Voice Ingestion | Upload a WAV/MP3 recording → system detects if your voice has changed |
+| Voice Timeline | Visual timeline of all your stored voice versions |
+| Age Playback | Type "Play my voice at age 10" and hear the result |
+| Future Prediction | "How will I sound in 20 years?" — uses a trained neural model |
+| Age Sweep | Generate a ZIP of your voice at every age from X to Y |
 
 ---
 
-## System Architecture (High level) (text)
-Audio Input  
-↓  
-Quality Gate → Speaker Verification → Device Check  
-↓  
-Confidence Engine  
-↓  
-FAISS Similarity Search  
-↓  
-Version Decision Engine  
-↓  
-User Voice Timeline  
-↓  
-Playback Engine (Recorded / Interpolated / Predicted)
+## 🗂️ Project Structure
 
-Frontend: Streamlit app for visualization and playback control.
-
----
-
-## Streamlit Frontend (text)
-The included Streamlit UI allows:
-- User selection
-- Voice timeline visualization
-- Age-based voice playback
-- Clear explanations of playback decisions
-- Real-time synthesis output
-
-To run the frontend, use the command below.
-
-Commands
-```bash
-# Run the Streamlit frontend
-streamlit run frontend/app.py
+```
+voice-evolution-system/
+├── frontend/
+│   └── app.py                  # Streamlit web UI (run this to start)
+│
+├── src/voice_age/
+│   ├── age/
+│   │   ├── playback.py         # Master orchestrator for age-based playback
+│   │   ├── timeline.py         # Maps ages to stored voice versions
+│   │   └── transformer.py      # Slerp interpolation + future model
+│   ├── vocoder/
+│   │   ├── dsp_aging.py        # DSP pitch/spectral aging engine
+│   │   └── voice_decoder.py    # Decoder interface (DSP or XTTS)
+│   └── io/audio.py             # Audio load/write helpers
+│
+├── scripts/
+│   ├── process_new_voice.py    # Part 1: Voice ingestion pipeline
+│   ├── user_registry.py        # User data management
+│   ├── embed_ecapa.py          # ECAPA speaker embedding extraction
+│   └── ...                     # Other processing scripts
+│
+├── training/
+│   ├── models/
+│   │   └── voice_evolution_model.pt   # Trained neural model weights
+│   └── scripts/
+│       └── train_voice_evolution_model.py  # Model definition + training
+│
+├── config/
+│   ├── voice_config.yaml       # Part 1 thresholds (SNR, similarity, etc.)
+│   ├── age_profiles.yaml       # DSP parameters per age group
+│   └── age_playback.yaml       # Part 2 playback config
+│
+├── tests/
+│   └── test_age_playback.py    # 28 unit tests (all passing)
+│
+├── requirements.txt
+└── pyproject.toml
 ```
 
 ---
 
-## Project Structure (text)
-A simplified overview of the repo layout.
+## ⚙️ Prerequisites
 
-```text
-voice-evolution/
-├── frontend/          # Streamlit UI
-├── scripts/           # Core system logic
-├── config/            # Central config & thresholds
-├── users/             # User profiles (runtime)
-├── versions/          # Voice versions (runtime)
-├── learning/          # Optional lightweight learning
-├── src/               # API / core modules
-├── README.md
-└── .gitignore
-```
+Make sure the following are installed on your machine before you begin.
 
----
+### System Requirements
 
-## Use Cases (text)
-- Personal voice archiving
-- Voice aging research
-- Speech therapy tracking
-- Digital legacy preservation
-- Forensic & historical voice analysis
-- AI assistants with temporal voice memory
+| Requirement | Version | Notes |
+|---|---|---|
+| Python | **3.10** | Exactly 3.10 — SpeechBrain and PyTorch 2.1.2 require it |
+| FFmpeg | Any recent | Required for audio conversion |
+| Git | Any | For cloning the repo |
 
----
+### Installing FFmpeg
 
-## How to Run the Voice Evolution System Locally
-
-### 1️⃣ Prerequisites (text)
-Ensure the following are installed on your system:
-- Git
-- Anaconda / Miniconda
-- Python 3.9 or 3.10 (Conda recommended)
-- FFmpeg (required for audio processing)
-
-Commands for FFmpeg installation
 ```bash
 # macOS (Homebrew)
 brew install ffmpeg
 
 # Ubuntu / Debian
-sudo apt update
-sudo apt install ffmpeg -y
+sudo apt update && sudo apt install ffmpeg -y
+
+# Windows (via Chocolatey)
+choco install ffmpeg
+
+# Windows (via winget)
+winget install ffmpeg
 ```
 
 ---
 
-### 2️⃣ Clone the repository (command)
+## 🚀 Local Setup — Step by Step
+
+### 1. Clone the Repository
+
 ```bash
-git clone https://github.com/GreenCodr/voice-evolution-system.git
+git clone https://github.com/YOUR_USERNAME/voice-evolution-system.git
 cd voice-evolution-system
 ```
 
+> Replace `YOUR_USERNAME` with your GitHub username.
+
 ---
 
-### 3️⃣ Create & Activate Conda Environment (commands)
-```bash
-# Create the conda environment (example)
-conda create -n voice-evo python=3.10 -y
+### 2. Create a Python 3.10 Virtual Environment
 
-# Activate the environment
+**Option A — Using `venv` (built-in, recommended)**
+
+```bash
+# Create the virtual environment
+python3.10 -m venv .venv
+
+# Activate it
+# macOS / Linux:
+source .venv/bin/activate
+
+# Windows (Command Prompt):
+.venv\Scripts\activate.bat
+
+# Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+```
+
+**Option B — Using Conda**
+
+```bash
+conda create -n voice-evo python=3.10 -y
 conda activate voice-evo
 ```
 
 ---
 
-### 4️⃣ Install Python dependencies (command)
+### 3. Install Python Dependencies
+
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+This installs: PyTorch 2.1.2, SpeechBrain, Transformers (HuBERT), librosa, Streamlit, scipy, soundfile, and all other required packages.
+
+> ⚠️ **Note on PyTorch:** `requirements.txt` installs the CPU version of PyTorch by default. If you have a CUDA GPU and want faster inference, replace the torch lines with the appropriate CUDA version from [pytorch.org](https://pytorch.org/get-started/locally/).
+
 ---
 
-### 5️⃣ Run the Frontend (recommended) (command)
+### 4. Install the Package in Editable Mode
+
+```bash
+pip install -e .
+```
+
+This makes the `voice_age` package importable from anywhere inside the project.
+
+---
+
+### 5. (First Run) Download the ECAPA Speaker Model
+
+The SpeechBrain ECAPA-TDNN model (~80 MB) is automatically downloaded from HuggingFace the first time you run the app. No manual step needed — just make sure you have an internet connection on first launch.
+
+The model is cached at `pretrained_models/ecapa/`.
+
+---
+
+### 6. Run the App
+
 ```bash
 streamlit run frontend/app.py
 ```
 
+Open your browser at **http://localhost:8501** — the Streamlit UI will load automatically.
+
 ---
 
-### 6️⃣ Run a backend test: age-based playback (command + example)
-This short Python snippet demonstrates calling the playback service directly (backend-only):
+## 🎯 How to Use the App
 
-```python
-# Example: Run from the terminal with `python test_playback.py` or paste into an interpreter
-from scripts.playback_service import play_voice
+### Step 1 — Create Your Profile
 
-result = play_voice(
-    user_id="user_002",
-    target_age=60,
-    text="Hello, this is how my voice may sound in the future."
-)
+In the **"Voice Ingestion"** section:
+1. Enter a **User ID** (e.g., your name)
+2. Enter your **Date of Birth** (used to calculate your age at each recording)
+3. Click **"Create User"**
 
-print(result)
-```
+### Step 2 — Record Your Voice
 
-(Or run as a one-off here-document in bash:)
+Record yourself speaking for **at least 10 seconds** (longer is better). Save it as a WAV or MP3 file.
+
+> **Tip:** Read a paragraph of text aloud. Anything works — a news article, a poem, or just counting. The system cares about your voice characteristics, not what you say.
+
+### Step 3 — Upload Your Recording
+
+In the **"Upload Voice Recording"** section:
+1. Select your user from the dropdown
+2. Upload your WAV or MP3 file
+3. The system will analyze it and create a voice version
+
+### Step 4 — Hear Your Voice at Any Age
+
+In the **"Age Playback"** section:
+1. Choose a query mode:
+   - **"Play at age"** — enter any age number
+   - **"Play as of year"** — enter a year (e.g., 2010)
+   - **"Play N years from now"** — enter how many years ahead
+2. Click **"Generate"**
+3. Listen to the result and download if you like
+
+---
+
+## 🧪 Running Tests
 
 ```bash
-python - << 'PY'
-from scripts.playback_service import play_voice
-
-result = play_voice(
-    user_id="user_002",
-    target_age=60,
-    text="Hello, this is how my voice may sound in the future."
-)
-
-print(result)
-PY
+python -m pytest tests/test_age_playback.py -v
 ```
 
-Generated audio will be written to:
-```text
-outputs/
+All 28 tests should pass. Tests cover: age query parsing, voice timeline logic, slerp interpolation, DSP aging engine, the VoiceEvolutionModel, and the full playback pipeline.
+
+---
+
+## 🔧 Configuration
+
+All tunable parameters live in the `config/` directory — no code changes needed.
+
+### `config/voice_config.yaml` — Voice Change Detection
+
+```yaml
+audio_quality:
+  min_duration_sec: 10.0    # Minimum recording length
+  min_snr_db: 20.0          # Minimum signal-to-noise ratio
+
+speaker_verification:
+  similarity_reject_hard: 0.65   # Below this → rejected as wrong speaker
+  similarity_no_change: 0.85     # Above this → voice hasn't changed enough
+
+confidence:
+  create_above: 0.85        # Confidence needed to create a new version
+```
+
+### `config/age_profiles.yaml` — DSP Age Parameters
+
+Controls how pitch, breathiness, and tremor change across age groups (child → elderly).
+
+### `config/age_playback.yaml` — Playback Settings
+
+```yaml
+age_playback:
+  decoder_model: "dsp"      # "dsp" (default, no download) or "auto" (tries XTTS first)
+  max_future_prediction_years: 40
 ```
 
 ---
 
-### 7️⃣ Creating a new user (text + example file path)
-User profiles are stored under the users/ directory as JSON files:
-- users/user_001.json
-- users/user_002.json
+## 🤖 How the AI Works
 
-Example: create a new user JSON file at users/user_003.json with the required fields (DOB, user_id, metadata).
+### Part 1 — Voice Change Detection
+
+```
+Upload audio
+    ↓
+Normalize to 16kHz mono WAV
+    ↓
+Quality check (duration + SNR)
+    ↓
+ECAPA-TDNN → 192-dim speaker embedding
+    ↓
+Compare to stored embeddings (cosine similarity)
+    ↓
+Confidence score (quality + similarity + device)
+    ↓
+Decision: BASELINE / NO_CHANGE / NEW_VERSION
+```
+
+### Part 2 — Age-Based Voice Generation
+
+```
+User query: "Play my voice at age 10"
+    ↓
+VoiceTimeline → finds nearest stored version(s)
+    ↓
+AgeTransformer:
+  • Past/between recordings → SLERP interpolation of embeddings
+  • Future → VoiceEvolutionModel (neural network) shifts embedding
+    ↓
+DSPAgingEngine:
+  • Pitch shift (librosa)
+  • Spectral roll-off (bright for young, muted for elderly)
+  • Breathiness wobble
+  • Tremor (for senior/elderly)
+    ↓
+Output: WAV file + audio player in UI
+```
+
+### The VoiceEvolutionModel
+
+A custom-trained neural network (`training/models/voice_evolution_model.pt`) that predicts how a voice embedding shifts as a person ages. Trained on VCTK corpus speaker pairs (young/old), with architecture:
+
+```
+Input: 1216-dim embedding (ECAPA 192 + HuBERT 1024)
+Linear(1216 → 1024) → ReLU
+Linear(1024 → 1024) → ReLU
+Linear(1024 → 1216)
+Output = Input + predicted_delta   (residual connection)
+```
 
 ---
 
-## Important Notes (text)
-- The system uses confidence-aware outputs and safe fallbacks to avoid hallucinated audio.
-- Outputs, cache, and models are gitignored; check .gitignore for those paths.
+## 🔊 Optional: Better Voice Quality with XTTS
 
-Commands
+By default the app uses a DSP-only engine (no download, runs anywhere). For higher-quality voice cloning, install Coqui TTS:
+
 ```bash
-# Example: reactivate environment reminder
-conda activate voice-evo
+pip install TTS
+```
+
+Then in `config/age_playback.yaml`, change:
+
+```yaml
+age_playback:
+  decoder_model: "auto"   # Will use XTTS-v2 if installed, fallback to DSP
+```
+
+> **Note:** XTTS-v2 downloads ~2 GB of model weights on first use. It clones your speaker identity before applying age transformations, producing more realistic results.
+
+---
+
+## ❓ Troubleshooting
+
+**`ModuleNotFoundError: No module named 'voice_age'`**
+→ Run `pip install -e .` from the project root.
+
+**`FileNotFoundError` on first launch**
+→ The ECAPA model is downloading. Wait a minute and try again.
+
+**`ffmpeg not found` error**
+→ Install FFmpeg (see Prerequisites above).
+
+**App is slow on first query**
+→ SpeechBrain loads the ECAPA model into memory on first use. Subsequent queries are fast.
+
+**Generated voice sounds unchanged**
+→ Make sure the target age is more than 2 years different from your recording age. The DSP aging effect is subtle for small age gaps by design.
+
+---
+
+## 📋 Requirements Summary
+
+```
+Python == 3.10
+torch == 2.1.2
+torchaudio == 2.1.2
+speechbrain == 0.5.16
+transformers == 4.36.2
+librosa
+soundfile
+scipy
+numpy < 2
+streamlit == 1.30.0
+praat-parselmouth
+ffmpeg (system binary)
 ```
 
 ---
 
-Thank you for using the Voice Evolution System — commands are shown in fenced code blocks for easy copying, and all other information is presented as readable explanatory text.
+## 📄 License
+
+This project is for personal and research use. The VCTK dataset used for training is subject to its own license — see [VCTK corpus](https://datashare.ed.ac.uk/handle/10283/3443).
+
+---
+
+*Built by Harshit Yadav — March 2026*
