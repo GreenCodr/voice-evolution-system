@@ -1,3 +1,15 @@
+---
+title: Voice Evolution System
+emoji: 🎙️
+colorFrom: blue
+colorTo: purple
+sdk: streamlit
+sdk_version: 1.30.0
+app_file: frontend/app.py
+python_version: "3.10"
+pinned: false
+---
+
 # 🎙️ Voice Evolution System
 
 > **Track how your voice changes over time — and hear what it sounded like at any age, past or future.**
