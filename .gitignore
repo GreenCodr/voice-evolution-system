@@ -77,7 +77,13 @@ ingest_vctk*.log
 *.npy
 
 # ==============================
+# Claude Code session data
+# ==============================
+.claude/
+
+# ==============================
 # Misc
 # ==============================
 notebooks/
 scripts/_disabled_dsp/
+PROJECT_DOCUMENT.md

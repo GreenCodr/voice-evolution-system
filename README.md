@@ -113,11 +113,9 @@ winget install ffmpeg
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/voice-evolution-system.git
+git clone https://github.com/GreenCodr/voice-evolution-system.git
 cd voice-evolution-system
 ```
-
-> Replace `YOUR_USERNAME` with your GitHub username.
 
 ---
 
@@ -337,6 +335,21 @@ age_playback:
 ```
 
 > **Note:** XTTS-v2 downloads ~2 GB of model weights on first use. It clones your speaker identity before applying age transformations, producing more realistic results.
+
+---
+
+## ☁️ Deploy to Streamlit Cloud (Free)
+
+1. Fork or push this repo to your GitHub account
+2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub
+3. Click **"New app"**
+4. Set:
+   - **Repository:** `GreenCodr/voice-evolution-system`
+   - **Branch:** `main`
+   - **Main file path:** `frontend/app.py`
+5. Click **"Deploy"** — Streamlit Cloud handles everything automatically
+
+> **Note:** On Streamlit Cloud, user data (uploaded voices) resets when the app restarts since there is no persistent disk. It is ideal for demo purposes.
 
 ---
 
