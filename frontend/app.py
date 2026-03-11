@@ -236,12 +236,14 @@ def run_app():
 
     if _playback_available:
 
-        # ── Service (one per user, cached for the session) ──────────────────
+        # ── Service (one per user+version-count, so cache refreshes after upload) ──
+        _n_versions = len(user.get("voice_versions", []))
+
         @st.cache_resource(show_spinner=False)
-        def _get_service(uid: str) -> "AgePlaybackService":
+        def _get_service(uid: str, _n: int) -> "AgePlaybackService":
             return AgePlaybackService(uid, decoder_model="dsp")
 
-        svc = _get_service(selected_user)
+        svc = _get_service(selected_user, _n_versions)
         timeline_entries = svc.get_timeline()
         earliest_age, latest_age, predicted_max = svc.get_available_range()
 
