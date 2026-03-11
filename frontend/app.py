@@ -243,7 +243,7 @@ def run_app():
         _n_versions = len(user.get("voice_versions", []))
 
         @st.cache_resource(show_spinner=False)
-        def _get_service(uid: str, _n: int) -> "AgePlaybackService":
+        def _get_service(uid: str, n: int) -> "AgePlaybackService":
             return AgePlaybackService(uid, decoder_model="dsp")
 
         svc = _get_service(selected_user, _n_versions)
