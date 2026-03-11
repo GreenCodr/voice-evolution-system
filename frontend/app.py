@@ -236,7 +236,10 @@ def run_app():
 
     if _playback_available:
 
-        # ── Service (one per user+version-count, so cache refreshes after upload) ──
+        # ── Always re-read user JSON here so Part 1 uploads are visible ──────
+        # The `user` dict at the top is a snapshot from before Part 1 ran.
+        # Re-reading from disk ensures voice_versions added by Part 1 are seen.
+        user = json.loads(user_path.read_text())
         _n_versions = len(user.get("voice_versions", []))
 
         @st.cache_resource(show_spinner=False)
